@@ -1,171 +1,120 @@
 ---
-title: "金融大数据第五次作业"
-author: "151278033 王珂"
+title: "Project1 Mapreduce基础编程"
+author: "wangke"
 date: "2017年11月21日"
 output:
   html_document: default
   pdf_document: default
 ---
-（更新）11月22日</br>
-1.上次交作业错误的理解了题意，我重新首先用matlab函数random出150个二维点，而后将它们导出为txt文件，在MapReduce上运行计算结果；然后将MapReduce程序的输出导入MATLAB当中画图</br>
-首先，用MATLABrandom150个二维点并导出
+#一.实验设计说明</br>
+<1>主要设计思路</br>
+首先，针对需求1，第一，要从文件中提取出新闻标题；第二，找到Java中文分词的方式，寻找网上开源的代码和中文分词器，而后对新闻标题进行中文分词；第三，对分词后的文件进行停词，忽略一些不必要的停词；第四，在Wordcount的基础上进行改变，统计新闻分词的词频，根据用户输入的k,输出k以上频率的词组；第五，新建一个sort job，以前四步的输出作为新job的输入；第六，调换key-value的顺序，利用系统自带的排序算法进行排序并将词频按照从高到低的顺序输出。</br>
+![程序流程图1](https://github.com/WangKe2333/Project1/raw/master/picture/程序流程图1.png)
+![程序伪代码](https://github.com/WangKe2333/Project1/raw/master/picture/伪代码1.png)
+</br>而后，针对需求2，第一，也是将新闻标题进行中文分词，key是新闻标题的分词结果，value使用url+词频；第二，修改wordcount程序，将mapper,combiner,reducer的输入输出类型都设为Text,以便后续处理；第三，将url值与新闻标题词汇共同作为key，value值仍为1；第四，在combiner当中将key还原为新闻标题词汇，value为url+词频；第五，在reducer当中形成url列表并输出。</br>
+![程序流程图2](https://github.com/WangKe2333/Project1/raw/master/picture/程序流程图2.png)
+![程序伪代码2](https://github.com/WangKe2333/Project1/raw/master/picture/伪代码2.png)
+</br><2>算法设计</br>
+1.Java中文分词：对于中文分词部分，我首先选用了网上的word朴素最大正向匹配算法的程序进行分词，能够达到正常的分词效果，但是后来发现这个程序运行太慢（运行完全部fulldata程序需要大概300分钟），鉴于这个情况，我选择换一个分词器进行分词，来提高程序运行效率，以便于后续程序运行调试等。</br>
+2.Java中文分词改进：后来更换了很多同学都使用的IkAnaylazer分词器，速度果然大有提升。在程序中间套用IKAnalyazer 的demo的例子即可</br>
+3.按照value值排序输出：建立一个新的Job,上一个程序的输出等于此次的输入。使用InverseMapper改变key和value的位置，编写新的按照降序输出的程序</br>
+4.停词：最初使用wordcount2的skip功能忽略部分停词，skip功能对于忽略词语输入的格式有要求，需要在要忽略的词前添加\，故在读入停词文件之前，我又对停词文件的格式做了一定的处理。</br>
+5.停词：后来发现IK Analyzer自带停词功能，只需要将配置文件写好放入src中即可，但是一开始并无效果，后发现原来文件需要放错了位置，相应的jar文件也必须引入。
+6.倒排索引：为了方便输出和传值，我们将mapper combiner reducer中的输入输出全部换为text类型，在mapper中使用IK Analazer分词，分词后，key值为新闻标题+url值，value值仍为1；在combiner中用value统计词频，设置value值为url+词频，设置key值为新闻词汇；在reducer中将url合并为urllist并输出</br>
+<3>主要程序代码</br>
+分词程序</br>
 ```{}
-%随机获取150个点
-X = [randn(50,2)+ones(50,2);randn(50,2)-ones(50,2);randn(50,2)+[ones(50,1),-ones(50,1)]];
-fid = fopen('tt.txt','wt');
-for i = 1:size(X,1)
-    fprintf(fid,'%f,%f\n',X(i,1),X(i,2));
-end
-fclose(fid);
-plot(X(1),X(2),'k')
-
+//创建分词对象  
+Analyzer anal=new IKAnalyzer(true);       
+StringReader reader=new StringReader(itr.nextToken());
+//分词  
+TokenStream ts=anal.tokenStream("", reader);  
+CharTermAttribute term=ts.getAttribute(CharTermAttribute.class);  
+while(ts.incrementToken()){  
+      word.set(term.toString());
+      context.write(word, one);
+}
 ```
-导出为txt文件</br>
-![txt文件](https://github.com/WangKe2333/Kmeans/raw/master/picture/随机生成150个点.png)
-</br>MapReduce当中运行</br>
+提取新闻标题</br>
 ```{}
-bin/hdfs dfs -put data/tt.txt /user
-bin/hdfs dfs -ls /user
-bin/hadoop jar share/hadoop/mapreduce/kmeans.jar KMeansDriver 2 2 /user/tt.txt output5
-bin/hdfs dfs -get output5 output3
-cat output3/clusteredInstances/part-m-00000
-
-bin/hdfs dfs -put data/tt.txt /user
-bin/hdfs dfs -ls /user
-bin/hadoop jar share/hadoop/mapreduce/kmeans.jar KMeansDriver 3 10 /user/tt.txt output6
-bin/hdfs dfs -get output6 output4
-cat output4/clusteredInstances/part-m-00000
-
-bin/hdfs dfs -put data/tt.txt /user
-bin/hdfs dfs -ls /user
-bin/hadoop jar share/hadoop/mapreduce/kmeans.jar KMeansDriver 3 2 /user/tt.txt output7
-bin/hdfs dfs -get output7 output5
-cat output5/clusteredInstances/part-m-00000
+String[] strarray=line.split("\t"); 
+     if(strarray.length>5)
+     {
+    	 line=strarray[4];
+     }
 ```
-结果：</br>
-![结果](https://github.com/WangKe2333/Kmeans/raw/master/picture/MapReduce输出.png)
-</br>然后导入MATLAB当中</br>
+接受用户输入k</br>
 ```{}
-load part-m-00000.txt %导入数据
-M=part_m_00000; 
-M1=M(:,1:2); %前两列为点
-M2=M(:,3);%最后一列为类别
-
-%画出聚类为1的点。X(Idx==1,1),为第一类的样本的第一个坐标；X(Idx==1,2)为第二类的样本的第二个坐标
-plot(M1(M2==1,1),M1(M2==1,2),'r.','MarkerSize',14)
-hold on
-plot(M1(M2==2,1),M1(M2==2,2),'b.','MarkerSize',14)
-hold on
-plot(M1(M2==3,1),M1(M2==3,2),'g.','MarkerSize',14)
-
-legend('Cluster 1','Cluster 2','Cluster3','Centroids','Location','NW')
-```
-画图</br>
-聚类（3，10）</br>
-![聚类3 10](https://github.com/WangKe2333/Kmeans/raw/master/picture/聚类图(3%2C10).png)
-
-聚类（3，2）</br>
-![聚类3 2](https://github.com/WangKe2333/Kmeans/raw/master/picture/聚类图(3%2C2).png)
-
-聚类（2，2）</br>
-![聚类2 2](https://github.com/WangKe2333/Kmeans/raw/master/picture/聚类图(2%2C2).png)
-
-结论：从图形上看MapReduce对于点的聚类结果与MATLAB自带函数的聚类结果相同，迭代次数越多 效果越好</br>
-
-2.在MapReduce上运行6维数据集
-运行KMeans的Java代码和小测试集（Java代码较多，已附件，此处不再贴Java代码）
-输入参数：聚为两类，迭代10次
-
-```{}
-bin/hdfs dfs -mkdir /user
-bin/hdfs dfs -put data/instance.txt /user
-bin/hdfs dfs -ls /user
-bin/hadoop jar share/hadoop/mapreduce/kmeans.jar KMeansDriver 2 10 /user/instance.txt output3
-bin/hdfs dfs -get output3 output2
-cat output2/clusteredInstances/part-m-00000
-```
-结果：</br>
-2,1,3,4,1,4	1</br>
-3,2,5,2,3,5	1</br>
-4,4,4,3,1,5	1</br>
-2,3,1,2,0,3	1</br>
-4,0,1,1,1,5	1</br>
-1,2,3,5,0,1	2</br>
-5,3,2,2,1,3	1</br>
-3,4,1,1,2,1	2</br>
-0,2,3,3,1,4	1</br>
-0,2,5,0,2,2	2</br>
-2,1,4,5,4,3	2</br>
-4,1,4,3,3,2	2</br>
-0,3,2,2,0,1	1</br>
-1,3,1,0,3,0	2</br>
-3,3,4,2,1,3	1</br>
-3,5,3,5,3,2	2</br>
-2,3,2,3,0,1	1</br>
-4,3,3,2,2,3	1</br>
-1,4,3,4,3,1	2</br>
-3,2,3,0,2,5	1</br>
-1,0,2,1,0,4	1</br>
-4,4,3,5,5,4	2</br>
-5,1,4,3,5,2	2</br>
-3,4,4,4,1,1	2</br>
-2,2,4,4,5,5	2</br>
-5,2,0,3,1,3	1</br>
-1,1,3,1,1,3	1</br>
-2,4,2,0,3,5	1</br>
-1,1,1,1,0,4	1</br>
-1,1,4,1,3,0	2</br>
-遇到的问题</br>
-我之前运行hadoop忘记sbin/stop-dfs.sh关闭……结果再次运行的时候已经无法关闭，DataNode和NameNode也都启不启来，报错说local/172.25.169.27正在使用 please shutting down；后来要找到进程号强制杀掉</br>
-http://blog.csdn.net/asia_kobe/article/details/51067769</br>
-一些截图：</br>
-运行程序截图：
-![运行程序](https://github.com/WangKe2333/Kmeans/raw/master/运行程序.png)
-![运行输出](https://github.com/WangKe2333/Kmeans/raw/master/程序运行输出.png)
-</br>运行结果：</br>
-![运行结果](https://github.com/WangKe2333/Kmeans/raw/master/程序运行结果.png)
-
-
-3.MATLAB自带kmeans函数聚类
-以下是MATLAB的代码
-```{}
-%随机获取150个点
-X = [randn(50,2)+ones(50,2);randn(50,2)-ones(50,2);randn(50,2)+[ones(50,1),-ones(50,1)]];
-opts = statset('Display','final');
-
-%调用Matlab内部的Kmeans函数
-
-[Idx,Ctrs,SumD,D] = kmeans(X,3,'Replicates',1,'Options',opts);
-
-%画出聚类为1，2，3，4的点
-plot(X(Idx==1,1),X(Idx==1,2),'r.','MarkerSize',14)
-hold on
-plot(X(Idx==2,1),X(Idx==2,2),'b.','MarkerSize',14)
-hold on
-plot(X(Idx==3,1),X(Idx==3,2),'g.','MarkerSize',14)
-%hold on
-%plot(X(Idx==4,1),X(Idx==4,2),'y.','MarkerSize',14)
-
-%绘出聚类中心点
-plot(Ctrs(:,1),Ctrs(:,2),'kx','MarkerSize',14,'LineWidth',4)
-plot(Ctrs(:,1),Ctrs(:,2),'kx','MarkerSize',14,'LineWidth',4)
-plot(Ctrs(:,1),Ctrs(:,2),'kx','MarkerSize',14,'LineWidth',4)
-%plot(Ctrs(:,1),Ctrs(:,2),'kx','MarkerSize',14,'LineWidth',4)
-
-legend('Cluster 1','Cluster 2','Cluster3','Centroids','Location','NW')
-
+String k=context.getConfiguration().get("k");
+int t=Integer.parseInt(k);
+if(result.get()>t)
+{
+    context.write(key, result);
+}
 ```
 
-运行截图：
-</br>2个类：</br>
-![两个类](https://github.com/WangKe2333/Kmeans/raw/master/2个类.png)
-</br>三个类：</br>
-![三个类](https://github.com/WangKe2333/Kmeans/raw/master/3个类.png)
-</br>四个类：</br>
-![四个类](https://github.com/WangKe2333/Kmeans/raw/master/4个类.png)
+文档倒排索引</br>
+```{}
+//mapper部分
+word.set(term.toString()+":"+line2);
+word2.set("1");
+context.write(word, word2);
+//combiner部分
+info.set( key.toString().substring( splitIndex + 1) +":"+sum );
+key.set( key.toString().substring(0,splitIndex));
+//reducer部分
+for (Text value : values) {
+    urlList += value.toString()+";";
+}
+    result.set(urlList);
+```
+<4>程序类的说明
+1.project.java文件中</br>
+mapper类：可以做到wordcount的skip-patterns和提取新闻标题，中文分词，停词</br>
+reducer类：累加统计词频，将大于k的部分输出</br>
+comparator类：实现降序输出</br>
+main:接受用户输入k，一次建立wordcount和sort两个job，前一个job的输出正好是后一个job的输入</br>
+![类1](https://github.com/WangKe2333/Project1/raw/master/picture/类1.png)
+</br>2.InvertedIndex--wordco.java文件中</br>
+mapper类：实现分词，key为新闻词汇+url，value值为1</br>
+combiner类：统计词频，设置value为url+词频，key为新闻词汇</br>
+reducer类：生成url列表</br>
+![类2](https://github.com/WangKe2333/Project1/raw/master/picture/类2.png)
+</br>#程序运行结果说明和分析</br>
+1.利用wordseg朴素最大正向匹配算法分词，程序运行非常慢</br>
+![程序很慢](https://github.com/WangKe2333/Project1/raw/master/picture/wordseg运行很慢.png)
+</br>但在小数据集上可以正常做到分词</br>
+![wordseg分词](https://github.com/WangKe2333/Project1/raw/master/picture/wordseg_小数据集.png)
+</br>2.利用IKAnalyzer分词结果：做到了合理的分词，停词和排序</br>
+![IKAnalyzer分词](https://github.com/WangKe2333/Project1/raw/master/picture/分词结果.png)
+</br>设置k值为100：可以看到词频为100以上的才被输出</br>
+![k=100](https://github.com/WangKe2333/Project1/raw/master/picture/k%3D100.png)
+</br>3.文档倒排索引：准确输出了词汇，对应的url和词频</br>
+![文档倒排](https://github.com/WangKe2333/Project1/raw/master/picture/文档倒排.png)
+![文档倒排2](https://github.com/WangKe2333/Project1/raw/master/picture/文档倒排2.png)
 
-</br>3个类迭代十次：（我觉得好像迭代次数的影响不大）</br>
-![3个类迭代十次](https://github.com/WangKe2333/Kmeans/raw/master/3个类%20迭代10次.png)
+#project1过程中遇到的问题及解决</br>
+1.最让人崩溃的bug:有的类运行太多次之后，再导出新的jar包运行mapreduce仍然在运行之前的jar包和类，新的修改并不起作用。改啊改啊改了一整天怎么改输出都不变，崩溃一天之后才发现MapReduce一直在运行一个jar包，修改类名，新建project，代码不做修改即可解决。</br>
+2.传入参数一直未null值：配置参数一定要在新建job之前，否则无法传入参数</br>
+3.IKAnalyzer包运行，要打成runnable jar file,配置文件和停词文件也要一同加入</br>
+4.停词文件要求需要为UTF-8格式，可以直接用vim查看和修改:set fileencoding=</br>
+5.文档倒排索引最好将mapper reducer的输入输出设置为text格式，统一比较容易处理</br>
+6.大文件当中有一行为空，做分词等处理的时候出现问题</br>
+
+
+#性能扩展性不足及可能的改进之处</br>
+1.程序功能较为单一，在分词方面直接调用了分词器和开源程序的内容，没有做更加细致的处理</br>
+2.停词能够支持的文件只能是已经设置好的，用户想自定义停词程序可以使用wordcount的skip功能实现</br>
+3.文档倒排索引部分可以输出更多的信息，将该词汇所在的文件输出，但是这样一来程序输出的东西太多，不太直观，后续可以考虑让用户通过输入设置选择按照何种方式倒排索引</br>
+
+</br>
+</br>
+</br>
+
+
+
+
+
 
 
 
